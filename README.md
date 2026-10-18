@@ -14,7 +14,7 @@ Nothing sits on screen at rest. When a notification arrives, the track changes o
 - **Timers.** `omarchy-shell banditshell-island timer 10m tea` starts one. A running timer sits in a small pill, and a finished one chimes and stays until you press it.
 - **Sing along.** `omarchy-shell banditshell-island sing` keeps the current line on screen while music plays.
 
-<img src="docs/open.webp" alt="The open island: album art, title, a progress line, the current lyric with its first words lit, a timer and a notification" width="49%"> <img src="docs/buds.webp" alt="A now playing glance with a music bud and a timer bud beside it" width="49%">
+<img src="docs/open.webp" alt="The open island: album art, title, a progress line, the current lyric with its first words lit, a timer and a notification" width="49%"> <img src="docs/buds.webp" alt="A now playing glance with a running timer waiting beside it as a bud" width="49%">
 
 ## Install
 

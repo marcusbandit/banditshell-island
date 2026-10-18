@@ -814,7 +814,7 @@ Item {
                         Text {
                             anchors.centerIn: parent
                             visible: budInk.kind === "queue"
-                            text: String(root.queue.length)
+                            text: root.queue.length > 0 ? String(root.queue.length) : ""
                             color: theme.text
                             font.family: theme.font
                             font.pixelSize: theme.small
