@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "banditshell.island",
+  "name": "banditshell island",
+  "version": "0.1.0",
+  "author": "marcusbandit",
+  "license": "GPL-3.0-only",
+  "description": "The island from banditshell: notifications, timers and now playing with word-timed lyrics melt out of the bottom of your bar and go back when they are done.",
+  "kinds": ["panel"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "panel": "Island.qml"
+  }
+}
