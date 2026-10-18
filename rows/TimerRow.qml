@@ -29,6 +29,7 @@ Item {
         property color bg: root.theme.track
         onShareChanged: requestPaint()
         onFgChanged: requestPaint()
+        onBgChanged: requestPaint()
         onPaint: {
             const c = getContext("2d");
             c.reset();
@@ -55,7 +56,9 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         text: root.rung ? (root.timer?.label ? `${root.timer.label} is done` : "Time's up") : root.compact ? root.timers.clock(root.remaining) : (root.timer?.label || `${root.timers.spoken(root.timer?.total ?? 0)} timer`)
         font.weight: Font.Medium
-        font.features: { "tnum": 1 }
+        font.features: {
+            "tnum": 1
+        }
         color: root.rung ? root.theme.urgent : root.theme.text
     }
 
@@ -68,7 +71,9 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         text: root.rung ? "clear" : root.timers.clock(root.remaining)
         color: root.rung ? root.theme.dim : root.theme.text
-        font.features: { "tnum": 1 }
+        font.features: {
+            "tnum": 1
+        }
     }
 
     MouseArea {

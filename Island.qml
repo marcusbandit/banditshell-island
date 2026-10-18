@@ -36,6 +36,14 @@ Item {
         root.opened = false;
     }
 
+    // Opening from the pointer: it shuts again once the pointer leaves, so a
+    // press on a glance or a bud can never leave the island stuck open.
+    function peek(): void {
+        root.hoverOpen = true;
+        leave.interval = 1500;
+        leave.restart();
+    }
+
     Theme {
         id: theme
     }
@@ -57,7 +65,7 @@ Item {
                 entry: entry,
                 ms: entry.critical ? 0 : Math.max(root.glanceMs, entry.timeout || 0)
             })
-        onHistoryWanted: root.open(null)
+        onHistoryWanted: root.peek()
         onEntriesChanged: root.prune()
     }
 
@@ -95,7 +103,7 @@ Item {
 
     // Glances: one at a time, newest last in the queue. A glance with ms 0
     // stays until it is pressed (critical notifications, a timer that rang).
-    readonly property int glanceMs: settings.get("glanceSeconds", 4) * 1000
+    readonly property int glanceMs: Math.max(1, Number(settings.get("glanceSeconds", 4)) || 4) * 1000
 
     property var glance: null
     property var queue: []
@@ -122,12 +130,16 @@ Item {
     }
 
     function nextGlance(): void {
+        if (root.glance?.kind === "notification")
+            notices.glanced(root.glance.key);
         const n = root.queue[0] ?? null;
         root.queue = root.queue.slice(1);
         if (n)
             root.show(n);
-        else
+        else {
+            glanceTimer.stop();
             root.glance = null;
+        }
     }
 
     function alive(g: var): bool {
@@ -161,12 +173,27 @@ Item {
     readonly property string mode: root.expanded ? "open" : root.glance ? "glance" : timers.running.length > 0 ? "compact" : root.singing ? "sing" : "hidden"
     readonly property bool attending: root.hoverOpen || hover.hovered
 
-    onModeChanged: if (root.mode === "open")
-        notices.markSeen()
+    // Opening shows everything the glances were going to say, so they are
+    // not replayed after it shuts.
+    onModeChanged: {
+        if (root.mode === "open") {
+            notices.markSeen();
+            glanceTimer.stop();
+            if (root.glance?.kind === "notification")
+                notices.glanced(root.glance.key);
+            for (const q of root.queue)
+                if (q.kind === "notification")
+                    notices.glanced(q.key);
+            root.glance = null;
+            root.queue = [];
+        }
+        if (root.mode === "hidden")
+            root.shownScreen = root.targetScreen;
+    }
 
     // The bar this melts out of. Without Omarchy's bar on top the island
     // melts out of the screen's top edge instead.
-    readonly property string screenName: win.screen?.name ?? ""
+    readonly property string screenName: root.shownScreen?.name ?? ""
     readonly property real edge: {
         const bar = root.shell?.bar;
         if (!bar || bar.barHidden || bar.position !== "top")
@@ -184,10 +211,21 @@ Item {
         return screens.find(s => s.name === wanted) ?? screens[0];
     }
 
+    // The island follows the focused screen only while it is tucked away, so
+    // it never jumps monitors under the pointer.
+    property var shownScreen: null
+    onTargetScreenChanged: if (root.mode === "hidden" || !root.shownScreen || !Quickshell.screens.includes(root.shownScreen))
+        root.shownScreen = root.targetScreen
+    Component.onCompleted: root.shownScreen = root.targetScreen
+
     // Sizes for each mode, read off the content that mode shows.
     readonly property real padX: theme.pad
     readonly property real padY: root.mode === "open" ? 14 : root.mode === "compact" ? 6 : 7
     readonly property real wideW: settings.get("width", 440)
+
+    // A sung line wider than this shrinks its type instead of wrapping.
+    readonly property real singRoom: 600
+    readonly property int singSize: singMetrics.advanceWidth > root.singRoom ? Math.max(theme.normal, Math.floor(theme.large * root.singRoom / singMetrics.advanceWidth)) : theme.large
 
     readonly property real glanceW: glanceView.item?.implicitWidth ?? 0
     readonly property real glanceH: glanceView.item?.implicitHeight ?? 36
@@ -201,7 +239,7 @@ Item {
         case "compact":
             return compactView.implicitWidth + root.padX * 2 + 4;
         case "sing":
-            return Math.max(200, Math.min(620, singMetrics.advanceWidth + root.padX * 2 + 16));
+            return Math.max(200, Math.min(root.singRoom, singMetrics.advanceWidth) + root.padX * 2 + 16);
         default:
             return 140;
         }
@@ -210,7 +248,7 @@ Item {
     readonly property real targetH: {
         switch (root.mode) {
         case "open":
-            return Math.min(root.fieldHeight - root.edge - theme.gap * 3, openView.implicitHeight + root.padY * 2);
+            return Math.min(root.fieldHeight - root.edge - theme.gap * 3, (openLoader.item?.implicitHeight ?? 0) + root.padY * 2);
         case "glance":
             return root.glanceH + root.padY * 2;
         case "compact":
@@ -325,15 +363,14 @@ Item {
     PanelWindow {
         id: win
 
-        screen: root.targetScreen
+        screen: root.shownScreen
         color: "transparent"
 
-        anchors {
-            top: true
-            left: true
-            right: true
-        }
+        // Anchored to the top edge only, so layer-shell centres it and the
+        // surface is no wider than the island can get.
+        anchors.top: true
 
+        implicitWidth: root.fieldWidth
         implicitHeight: root.fieldHeight
         exclusionMode: ExclusionMode.Ignore
 
@@ -355,7 +392,25 @@ Item {
 
             width: root.fieldWidth
             height: root.fieldHeight
-            anchors.horizontalCenter: parent.horizontalCenter
+
+            // The mask only lets the pointer in over the pill, its neck and its
+            // buds, so hovering anywhere this handler can see means hovering
+            // the island, its rows and buttons included.
+            HoverHandler {
+                id: hover
+
+                onHoveredChanged: {
+                    if (hovered) {
+                        leave.stop();
+                        dwell.interval = root.mode === "hidden" ? 260 : 160;
+                        dwell.restart();
+                    } else {
+                        dwell.stop();
+                        leave.interval = 450;
+                        leave.restart();
+                    }
+                }
+            }
 
             // Input: the pill and its neck while it is out, a thin strip under
             // the bar's middle while it is not.
@@ -366,22 +421,7 @@ Item {
                 x: hit.out ? root.pillX : root.centre - 110
                 y: root.edge
                 width: hit.out ? root.pillW : 220
-                height: hit.out ? Math.max(4, root.pillY + root.pillH - root.edge) : 4
-
-                HoverHandler {
-                    id: hover
-
-                    onHoveredChanged: {
-                        if (hovered) {
-                            leave.stop();
-                            dwell.interval = root.mode === "hidden" ? 260 : 160;
-                            dwell.restart();
-                        } else {
-                            dwell.stop();
-                            leave.restart();
-                        }
-                    }
-                }
+                height: hit.out ? Math.max(3, root.pillY + root.pillH - root.edge) : 3
             }
 
             Item {
@@ -401,7 +441,7 @@ Item {
 
                 MouseArea {
                     anchors.fill: parent
-                    onClicked: root.open(null)
+                    onClicked: root.peek()
                 }
             }
 
@@ -415,7 +455,12 @@ Item {
                 id: leave
 
                 interval: 450
-                onTriggered: root.hoverOpen = false
+                onTriggered: {
+                    if (hover.hovered)
+                        return;
+                    root.hoverOpen = false;
+                    root.opened = false;
+                }
             }
 
             IslandField {
@@ -510,7 +555,7 @@ Item {
                             timers: timers
                             timer: timers.running[0] ?? null
                             compact: true
-                            onCleared: root.open(null)
+                            onCleared: root.peek()
                         }
                     }
 
@@ -536,25 +581,31 @@ Item {
                             text: (lyrics.current && !lyrics.current.gap ? lyrics.current.text : lyrics.next?.text) ?? ""
                         }
 
-                        LyricLine {
+                        Loader {
                             anchors.verticalCenter: parent.verticalCenter
                             width: parent.width
-                            theme: theme
-                            line: lyrics.current && !lyrics.current.gap ? lyrics.current : lyrics.next
-                            live: !!lyrics.current && !lyrics.current.gap
-                            fillOf: w => lyrics.fill(w)
-                            size: theme.large
+                            active: parent.visible
+
+                            sourceComponent: LyricLine {
+                                theme: theme
+                                line: lyrics.current && !lyrics.current.gap ? lyrics.current : lyrics.next
+                                live: !!lyrics.current && !lyrics.current.gap
+                                fillOf: w => lyrics.fill(w)
+                                size: root.singSize
+                            }
                         }
 
                         MouseArea {
                             anchors.fill: parent
-                            onClicked: root.open(null)
+                            onClicked: root.peek()
                         }
                     }
 
                     Item {
+                        id: openBox
+
                         width: root.wideW - root.padX * 2
-                        height: openView.implicitHeight
+                        height: openLoader.item?.implicitHeight ?? 0
                         x: (stage.width - width) / 2
                         y: root.padY
                         opacity: root.mode === "open" ? 1 : 0
@@ -566,130 +617,135 @@ Item {
                             }
                         }
 
-                        Column {
-                            id: openView
+                        Loader {
+                            id: openLoader
 
                             width: parent.width
-                            spacing: 12
+                            active: root.mode === "open" || openBox.opacity > 0
 
-                            MusicCard {
-                                width: parent.width
-                                visible: music.hasTrack
-                                theme: theme
-                                music: music
-                                lyrics: lyrics
-                            }
+                            sourceComponent: Column {
+                                width: openLoader.width
+                                spacing: 12
 
-                            Rectangle {
-                                width: parent.width
-                                height: 1
-                                color: theme.track
-                                visible: music.hasTrack && (timerList.count > 0 || notices.entries.length > 0 || !notices.active)
-                            }
+                                MusicCard {
+                                    width: parent.width
+                                    visible: music.hasTrack
+                                    theme: theme
+                                    music: music
+                                    lyrics: lyrics
+                                }
 
-                            Column {
-                                width: parent.width
-                                spacing: 4
-                                visible: timerList.count > 0
+                                Rectangle {
+                                    width: parent.width
+                                    height: 1
+                                    color: theme.track
+                                    visible: music.hasTrack && (timerList.count > 0 || notices.entries.length > 0 || !notices.active)
+                                }
 
-                                Repeater {
-                                    id: timerList
+                                Column {
+                                    width: parent.width
+                                    spacing: 4
+                                    visible: timerList.count > 0
 
-                                    model: [...timers.rung.map(t => ({
-                                                t: t,
-                                                rung: true
-                                            })), ...timers.running.map(t => ({
-                                                t: t,
-                                                rung: false
-                                            }))]
+                                    Repeater {
+                                        id: timerList
 
-                                    TimerRow {
-                                        required property var modelData
+                                        model: [...timers.rung.map(t => ({
+                                                        t: t,
+                                                        rung: true
+                                                    })), ...timers.running.map(t => ({
+                                                        t: t,
+                                                        rung: false
+                                                    }))]
 
-                                        width: parent.width
-                                        theme: theme
-                                        timers: timers
-                                        timer: modelData.t
-                                        rung: modelData.rung
-                                        onCleared: {
-                                            timers.cancel(modelData.t.key);
-                                            root.prune();
+                                        TimerRow {
+                                            required property var modelData
+
+                                            width: parent.width
+                                            theme: theme
+                                            timers: timers
+                                            timer: modelData.t
+                                            rung: modelData.rung
+                                            onCleared: {
+                                                timers.cancel(modelData.t.key);
+                                                root.prune();
+                                            }
                                         }
                                     }
                                 }
-                            }
 
-                            Item {
-                                width: parent.width
-                                height: 16
-                                visible: notices.entries.length > 0
+                                Item {
+                                    width: parent.width
+                                    height: 16
+                                    visible: notices.entries.length > 0
 
-                                Line {
-                                    theme: theme
-                                    anchors.left: parent.left
-                                    text: notices.dnd ? "Notifications, do not disturb is on" : "Notifications"
-                                    color: theme.dim
-                                    font.pixelSize: theme.small
-                                }
-
-                                Line {
-                                    theme: theme
-                                    anchors.right: parent.right
-                                    text: "Clear all"
-                                    color: clearArea.containsMouse ? theme.text : theme.dim
-                                    font.pixelSize: theme.small
-
-                                    MouseArea {
-                                        id: clearArea
-
-                                        anchors.fill: parent
-                                        anchors.margins: -4
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: notices.clear()
-                                    }
-                                }
-                            }
-
-                            Column {
-                                width: parent.width
-                                spacing: 8
-                                visible: notices.entries.length > 0
-
-                                Repeater {
-                                    model: notices.entries.slice(0, settings.get("shown", 4))
-
-                                    NoticeRow {
-                                        required property var modelData
-
-                                        width: parent.width
+                                    Line {
                                         theme: theme
-                                        entry: modelData
-                                        wide: true
-                                        onInvoked: notices.invoke(modelData.key)
-                                        onDismissed: notices.drop(modelData.key, true)
+                                        anchors.left: parent.left
+                                        text: notices.dnd ? "Notifications, do not disturb is on" : "Notifications"
+                                        color: theme.dim
+                                        font.pixelSize: theme.small
+                                    }
+
+                                    Line {
+                                        theme: theme
+                                        anchors.right: parent.right
+                                        text: "Clear all"
+                                        color: clearArea.containsMouse ? theme.text : theme.dim
+                                        font.pixelSize: theme.small
+
+                                        MouseArea {
+                                            id: clearArea
+
+                                            anchors.fill: parent
+                                            anchors.margins: -4
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: notices.clear()
+                                        }
                                     }
                                 }
-                            }
 
-                            Line {
-                                theme: theme
-                                width: parent.width
-                                visible: !music.hasTrack && timerList.count === 0 && notices.entries.length === 0
-                                text: "Nothing going on"
-                                color: theme.dim
-                                horizontalAlignment: Text.AlignHCenter
-                            }
+                                Column {
+                                    width: parent.width
+                                    spacing: 8
+                                    visible: notices.entries.length > 0
 
-                            Text {
-                                width: parent.width
-                                visible: !notices.active
-                                text: "Notifications show up here once Omarchy's own are off: omarchy plugin disable omarchy.notifications"
-                                color: Qt.alpha(theme.dim, 0.8)
-                                font.family: theme.font
-                                font.pixelSize: theme.small
-                                wrapMode: Text.WordWrap
-                                textFormat: Text.PlainText
+                                    Repeater {
+                                        model: notices.entries.slice(0, settings.get("shown", 4))
+
+                                        NoticeRow {
+                                            required property var modelData
+
+                                            width: parent.width
+                                            theme: theme
+                                            entry: modelData
+                                            wide: true
+                                            onInvoked: notices.invoke(modelData.key)
+                                            onDismissed: notices.drop(modelData.key, true)
+                                        }
+                                    }
+                                }
+
+                                Line {
+                                    theme: theme
+                                    width: parent.width
+                                    visible: !music.hasTrack && timerList.count === 0 && notices.entries.length === 0
+                                    text: "Nothing going on"
+                                    color: theme.dim
+                                    horizontalAlignment: Text.AlignHCenter
+                                }
+
+                                Text {
+                                    width: parent.width
+                                    visible: !notices.active
+                                    text: "Notifications show up here once Omarchy's own are off: omarchy plugin disable omarchy.notifications"
+                                    color: Qt.alpha(theme.dim, 0.8)
+                                    font.family: theme.font
+                                    font.pixelSize: theme.small
+                                    wrapMode: Text.WordWrap
+                                    textFormat: Text.PlainText
+                                }
                             }
                         }
                     }
@@ -722,29 +778,36 @@ Item {
                             height: 10
                         }
 
-                        Canvas {
+                        Loader {
                             anchors.centerIn: parent
-                            width: 14
-                            height: 14
-                            visible: budInk.kind === "timer"
-                            property real share: {
-                                const t = timers.running[0];
-                                return t ? timers.remainingOf(t) / t.total : 0;
-                            }
-                            onShareChanged: requestPaint()
-                            onPaint: {
-                                const c = getContext("2d");
-                                c.reset();
-                                c.lineWidth = 2;
-                                c.strokeStyle = theme.track;
-                                c.beginPath();
-                                c.arc(7, 7, 5.5, 0, Math.PI * 2);
-                                c.stroke();
-                                c.strokeStyle = theme.accent;
-                                c.lineCap = "round";
-                                c.beginPath();
-                                c.arc(7, 7, 5.5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * share);
-                                c.stroke();
+                            active: budInk.kind === "timer" && budInk.visible
+
+                            sourceComponent: Canvas {
+                                width: 14
+                                height: 14
+                                property color fg: theme.accent
+                                property color bg: theme.track
+                                onFgChanged: requestPaint()
+                                onBgChanged: requestPaint()
+                                property real share: {
+                                    const t = timers.running[0];
+                                    return t ? timers.remainingOf(t) / t.total : 0;
+                                }
+                                onShareChanged: requestPaint()
+                                onPaint: {
+                                    const c = getContext("2d");
+                                    c.reset();
+                                    c.lineWidth = 2;
+                                    c.strokeStyle = bg;
+                                    c.beginPath();
+                                    c.arc(7, 7, 5.5, 0, Math.PI * 2);
+                                    c.stroke();
+                                    c.strokeStyle = fg;
+                                    c.lineCap = "round";
+                                    c.beginPath();
+                                    c.arc(7, 7, 5.5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * share);
+                                    c.stroke();
+                                }
                             }
                         }
 
@@ -780,7 +843,7 @@ Item {
         MusicRow {
             theme: theme
             music: music
-            onPressed: root.open(null)
+            onPressed: root.peek()
         }
     }
 
@@ -844,15 +907,7 @@ Item {
                 lyrics: lyrics.source,
                 wordTimed: lyrics.wordTimed,
                 timers: timers.running.length,
-                position: music.position,
-                line: lyrics.current?.text ?? "",
-                gap: lyrics.current?.gap ?? false,
-                fill: lyrics.current?.lead?.length ? lyrics.fill(lyrics.current.lead[0]) : -1,
-                asides: root.asides,
-                buds: root.budList.map(b => b.amount),
-                spotifyId: lyrics.spotifyId,
-                trackId: music.trackId,
-                trace: lyrics.trace
+                line: lyrics.current?.text ?? ""
             });
         }
     }

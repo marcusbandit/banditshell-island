@@ -26,7 +26,6 @@ Item {
     }
 
     property string asked: ""
-    property string trace: ""
     property int spicyTries: 0
 
     readonly property int index: root.lines.length > 0 ? Parse.lineAt(root.lines, root.music?.position ?? 0) : -1
@@ -57,6 +56,7 @@ Item {
             if (root.key === root.asked)
                 return;
             root.asked = root.key;
+            spicyLater.stop();
             root.lines = [];
             root.source = "";
             root.wordTimed = false;
@@ -70,7 +70,17 @@ Item {
         }
     }
 
+    // One lookup at a time. A track that changes mid-lookup waits for the
+    // running one to finish, then asks for itself.
+    property bool rerun: false
+
     function askSpicy(): void {
+        if (!root.spotifyId)
+            return;
+        if (spicy.running) {
+            root.rerun = true;
+            return;
+        }
         spicy.key = root.key;
         spicy.command = ["python3", root.pluginDir + "/services/spicy-lyrics.py", root.spotifyId];
         spicy.running = true;
@@ -81,11 +91,9 @@ Item {
 
         property string key: ""
 
-        onExited: (code, status) => root.trace = `${spicy.command.join(" ")} -> ${code}`
-
-        stderr: StdioCollector {
-            onStreamFinished: if (text.trim())
-                root.trace += ` err: ${text.trim().slice(0, 200)}`
+        onExited: if (root.rerun) {
+            root.rerun = false;
+            Qt.callLater(root.askSpicy);
         }
 
         stdout: StdioCollector {
@@ -167,7 +175,7 @@ Item {
             album_name: wanted.album,
             duration: wanted.length > 0 ? Math.round(wanted.length) : ""
         })}`, body => {
-            if (root.take(body, key))
+            if (key !== root.key || root.take(body, key))
                 return;
             root.request(`search?${Parse.query({
                 track_name: Parse.cleanTitle(wanted.title),

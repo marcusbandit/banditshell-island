@@ -15,7 +15,7 @@ Item {
         return all.find(p => p.isPlaying) ?? (all.includes(root.last) ? root.last : null) ?? null;
     }
 
-    onPlayerChanged: if (root.player?.isPlaying)
+    onPlayingChanged: if (root.playing)
         root.last = root.player
 
     readonly property bool playing: root.player?.isPlaying ?? false
@@ -60,21 +60,24 @@ Item {
 
     FrameAnimation {
         running: root.ticking && root.playing
-        onTriggered: {
-            root.player.positionChanged();
-            root.position = root.player.position;
-        }
+        onTriggered: root.refresh()
     }
 
-    Timer {
-        interval: 1000
-        running: !root.ticking && !!root.player
-        repeat: true
-        triggeredOnStart: true
-        onTriggered: {
-            root.player.positionChanged();
-            root.position = root.player.position;
-        }
+    // Nothing reads the position while the island is shut, so it is only
+    // read when something that shows it opens, and every frame while it shows.
+    function refresh(): void {
+        if (!root.player)
+            return;
+        root.player.positionChanged();
+        root.position = root.player.position;
+    }
+
+    onTickingChanged: if (root.ticking)
+        root.refresh()
+    onPlayerChanged: {
+        if (root.playing)
+            root.last = root.player;
+        root.refresh();
     }
 
     property string announced: ""

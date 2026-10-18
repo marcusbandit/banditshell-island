@@ -21,7 +21,10 @@ Item {
         const span = space < 0 ? text : text.slice(0, space);
         const label = space < 0 ? "" : text.slice(space + 1).trim();
         if (/^\d+(\.\d+)?$/.test(span))
-            return { ms: Number(span) * 60000, label: label };
+            return {
+                ms: Number(span) * 60000,
+                label: label
+            };
         let ms = 0;
         const re = /(\d+(?:\.\d+)?)\s*(h|m|s)/g;
         let m, used = "";
@@ -29,12 +32,16 @@ Item {
             ms += Number(m[1]) * (m[2] === "h" ? 3600000 : m[2] === "m" ? 60000 : 1000);
             used += m[0];
         }
-        return ms > 0 && used.length === span.replace(/\s/g, "").length ? { ms: ms, label: label } : null;
+        return ms > 0 && used.length === span.replace(/\s/g, "").length ? {
+            ms: ms,
+            label: label
+        } : null;
     }
 
     function start(spec: string): string {
         const p = root.parse(spec);
-        if (!p)
+        root.now = Date.now();
+        if (!p || p.ms <= 0)
             return "usage: timer 10m [label] (h, m, s; a bare number is minutes)";
         const t = {
             key: `t${Date.now()}`,

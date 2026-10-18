@@ -65,9 +65,18 @@ Item {
 
                 Repeater {
                     model: [
-                        { glyph: "⏮", act: "previous" },
-                        { glyph: root.music?.playing ? "⏸" : "▶", act: "toggle" },
-                        { glyph: "⏭", act: "next" }
+                        {
+                            glyph: "⏮",
+                            act: "previous"
+                        },
+                        {
+                            glyph: root.music?.playing ? "⏸" : "▶",
+                            act: "toggle"
+                        },
+                        {
+                            glyph: "⏭",
+                            act: "next"
+                        }
                     ]
 
                     Rectangle {
@@ -121,7 +130,9 @@ Item {
                 text: root.clock(root.music?.position ?? 0)
                 color: root.theme.dim
                 font.pixelSize: root.theme.small
-                font.features: { "tnum": 1 }
+                font.features: {
+                    "tnum": 1
+                }
             }
 
             Rectangle {
@@ -159,7 +170,9 @@ Item {
                 text: root.clock(root.music?.length ?? 0)
                 color: root.theme.dim
                 font.pixelSize: root.theme.small
-                font.features: { "tnum": 1 }
+                font.features: {
+                    "tnum": 1
+                }
             }
         }
 

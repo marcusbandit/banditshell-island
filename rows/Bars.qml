@@ -12,7 +12,7 @@ Item {
     implicitHeight: 12
 
     FrameAnimation {
-        running: root.playing && !root.theme.still
+        running: root.playing && root.visible && !(root.theme?.still ?? false)
         onTriggered: root.t += frameTime
     }
 
