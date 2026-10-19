@@ -1,6 +1,6 @@
 # banditshell island
 
-The island from [banditshell](https://github.com/marcusbandit/banditshell), as a plugin for the Omarchy shell.
+The island from [banditshell](https://github.com/marcusbandit/banditshell), as a plugin for the Omarchy shell. It is listed on the [Omarchy plugin marketplace](https://plugins.omarchy.org/plugin.html?id=banditshell.island).
 
 <img src="docs/island.webp" alt="A notification melts out of the bottom of the bar, music and a timer pinch off beside it as buds, the island opens with word-timed lyrics, then closes" width="100%">
 
